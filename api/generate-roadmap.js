@@ -87,8 +87,7 @@ async function callClaude(input) {
         }
       ],
       tool_choice: {
-        type: "tool",
-        name: "create_career_plan"
+        type: "any"
       }
     })
   });
