@@ -46,7 +46,8 @@ async function callClaude(input) {
     };
   }
 
-  const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+  // Extended thinking requires a sonnet/opus model — never haiku.
+  const model = "claude-sonnet-4-6";
 
   const response = await fetch(ANTHROPIC_MESSAGES_URL, {
     method: "POST",
@@ -58,7 +59,7 @@ async function callClaude(input) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 16000,
+      max_tokens: 24000,
       thinking: {
         type: "enabled",
         budget_tokens: 8000

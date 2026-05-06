@@ -46,6 +46,21 @@ function lsClear() {
   try { localStorage.removeItem(LS_KEY); } catch (e) { void e; }
 }
 
+function contextKey(context) {
+  const fields = [
+    "year", "skills", "targetRole", "hoursPerWeek",
+    "experienceChecks", "projectDescription", "learningPreference",
+    "immediateGoal", "mainBlocker", "resumeText"
+  ];
+  const obj = {};
+  for (const f of fields) obj[f] = String(context[f] ?? "").trim();
+  // adaptiveAnswers: sort keys so order doesn't matter
+  obj.adaptiveAnswers = JSON.stringify(
+    Object.fromEntries(Object.entries(context.adaptiveAnswers || {}).sort())
+  );
+  return JSON.stringify(obj);
+}
+
 const initialFormData = {
   year: "",
   skills: "",
@@ -1152,7 +1167,7 @@ export default function App() {
 
   useEffect(() => {
     if (result?.plan) {
-      lsSave({ result, taskProgress, shareToken, planId });
+      lsSave({ result, taskProgress, shareToken, planId, contextKey: result._contextKey });
     }
   }, [result, taskProgress, shareToken, planId]);
 
@@ -1305,20 +1320,35 @@ export default function App() {
   }
 
   async function handleFinalGenerate() {
-    setLoading(true);
     setError("");
     setShowModal(false);
     setAdaptationFeedback("");
-    setPlanId(null);
-    setShareToken(null);
-    setTaskProgress({});
-    setSaveState(null);
+
     const context = {
       ...formData,
       ...coreAnswers,
       resumeText,
       adaptiveAnswers
     };
+    const key = contextKey(context);
+
+    // Return cached plan if inputs are identical
+    const session = lsLoad();
+    if (session?.contextKey === key && session?.result?.plan) {
+      setResult(session.result);
+      setTaskProgress(session.taskProgress || {});
+      setShareToken(session.shareToken || null);
+      setPlanId(session.planId || null);
+      if (session.shareToken) setSaveState("saved");
+      setLastGenerationContext(context);
+      return;
+    }
+
+    setLoading(true);
+    setPlanId(null);
+    setShareToken(null);
+    setTaskProgress({});
+    setSaveState(null);
 
     try {
       const payload = await generateCareerPlan(context);
@@ -1327,6 +1357,8 @@ export default function App() {
         throw new Error("The AI response did not include a plan.");
       }
 
+      // Stamp the context key so the cache can match it next time
+      payload._contextKey = key;
       setResult(payload);
       setLastGenerationContext(context);
       persistPlan(context, payload);

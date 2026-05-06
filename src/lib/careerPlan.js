@@ -227,7 +227,35 @@ Previous plan summary, if available: ${input.previousPlanSummary || "not provide
 
   const resumeInstruction = input.resumeText
     ? `
-The student has provided their resume text. Prioritize resume evidence over self-reported skills when they conflict. Call out specific projects from the resume when identifying skill gaps; do not speak in generalities. If the resume shows a project that directly addresses a skill gap, downgrade that gap's importance accordingly.
+RESUME ANALYSIS — do all four steps before writing any output:
+
+Step 1 — FULL SKILL EXTRACTION. Extract every skill you can find in the resume, including:
+  - Programming languages (Python, JavaScript, C++, Java, R, MATLAB, etc.)
+  - ML/AI frameworks and libraries (TensorFlow, PyTorch, scikit-learn, Keras, HuggingFace, LangChain, OpenCV, etc.)
+  - Data tools (Pandas, NumPy, Matplotlib, SQL, Spark, Tableau, Power BI, Excel, etc.)
+  - Web / software (React, Node.js, FastAPI, Flask, Django, REST APIs, etc.)
+  - DevOps / infra (Git, Docker, Linux, AWS, GCP, Azure, CI/CD, etc.)
+  - Concepts (machine learning, deep learning, NLP, computer vision, statistics, system design, etc.)
+  - Soft skills and roles (team lead, presenter, research, writing, mentoring, etc.)
+  - Academic coursework, certifications, or competition results if mentioned
+  List every extracted skill mentally — this full list must inform every subsequent field.
+
+Step 2 — PROJECT EVIDENCE AUDIT. For each project in the resume:
+  - Identify the specific skills it demonstrates (use extracted list above)
+  - Rate complexity: toy / portfolio / production-scale
+  - Note if it was deployed, published, open-sourced, or used in a real setting
+  - Flag if it directly covers a skill gap the user is asking about
+
+Step 3 — CONFLICT RESOLUTION. Compare resume evidence against the self-reported skills field:
+  - If resume shows stronger evidence than self-reported: upgrade that skill's status and lower its importance in the gap list
+  - If resume shows weaker evidence than claimed: mark the skill as "needs_practice" and flag in confidence_analysis
+  - If resume shows a skill not mentioned in the self-report: add it to your mental skill inventory
+
+Step 4 — PERSONALIZATION MANDATE. Every output field that references skills or projects MUST:
+  - Name actual projects from the resume by their exact title
+  - Reference actual technologies found in the resume
+  - Never produce generic advice that could apply to any student
+  - The situation_understanding paragraph must read as if written by someone who studied the resume
 `
     : "";
 
@@ -285,7 +313,7 @@ Output rules:
 - Keep strings specific, actionable, and concise.
 - Avoid generic outputs, deterministic claims, and bias toward a single career path.
 - Personalize based on the clarification answers. If answers are missing, explicitly state that uncertainty.
-- If resume text is provided, extract skills, extract project signals, detect inconsistencies, and adjust confidence.
+- If resume text is provided, complete all 4 resume analysis steps above before generating any output field.
 
 Personalization rules:
 1. Every skill gap must reference at least one specific project, skill, experience, or missing evidence from the student's input. No generic advice without grounding it in what they already built or said.
