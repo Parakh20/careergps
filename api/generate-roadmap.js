@@ -9,11 +9,14 @@ import {
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 
-function extractTextContent(response) {
+const SYSTEM_TEXT =
+  "You are an adaptive decision-support system. Use the provided clarification answers, return strict JSON only, preserve user agency, and never guarantee outcomes.";
+
+function extractThinking(response) {
   return (response.content || [])
-    .filter((item) => item.type === "text" && typeof item.text === "string")
-    .map((item) => item.text)
-    .join("\n")
+    .filter((item) => item.type === "thinking" && item.thinking)
+    .map((item) => item.thinking)
+    .join("\n\n")
     .trim();
 }
 
@@ -21,8 +24,15 @@ function extractToolInput(response) {
   const toolUse = (response.content || []).find(
     (item) => item.type === "tool_use" && item.name === "create_career_plan"
   );
-
   return toolUse?.input || null;
+}
+
+function extractTextContent(response) {
+  return (response.content || [])
+    .filter((item) => item.type === "text" && typeof item.text === "string")
+    .map((item) => item.text)
+    .join("\n")
+    .trim();
 }
 
 async function callClaude(input) {
@@ -36,19 +46,30 @@ async function callClaude(input) {
     };
   }
 
-  const model = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
+  const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+
   const response = await fetch(ANTHROPIC_MESSAGES_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "interleaved-thinking-2025-05-14,prompt-caching-2024-07-31"
     },
     body: JSON.stringify({
       model,
-      max_tokens: 6000,
-      system:
-        "You are an adaptive decision-support system. Use the provided clarification answers, return strict JSON only, preserve user agency, and never guarantee outcomes.",
+      max_tokens: 16000,
+      thinking: {
+        type: "enabled",
+        budget_tokens: 8000
+      },
+      system: [
+        {
+          type: "text",
+          text: SYSTEM_TEXT,
+          cache_control: { type: "ephemeral" }
+        }
+      ],
       messages: [
         {
           role: "user",
@@ -60,7 +81,8 @@ async function callClaude(input) {
           name: "create_career_plan",
           description:
             "Return an adaptive decision-support plan with situation understanding, skill gaps, primary plan, adjustments, risks, alternatives, reflection, and ethical safeguards.",
-          input_schema: careerPlanSchema
+          input_schema: careerPlanSchema,
+          cache_control: { type: "ephemeral" }
         }
       ],
       tool_choice: {
@@ -84,12 +106,16 @@ async function callClaude(input) {
     throw new Error("Claude reached the token limit before completing the decision-support plan.");
   }
 
+  const thinking = extractThinking(payload);
   const toolInput = extractToolInput(payload);
+
   if (toolInput) {
     return {
       plan: normalizePlan(toolInput, input),
+      thinking: thinking || null,
       source: "claude",
-      model
+      model,
+      usage: payload.usage || null
     };
   }
 
@@ -98,8 +124,10 @@ async function callClaude(input) {
 
   return {
     plan: normalizePlan(JSON.parse(outputText), input),
+    thinking: thinking || null,
     source: "claude",
-    model
+    model,
+    usage: payload.usage || null
   };
 }
 

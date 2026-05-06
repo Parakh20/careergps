@@ -54,6 +54,7 @@ const learningOptions = ["Hands-on", "Theory-first", "Mixed"];
 const constraintOptions = ["Time", "Consistency", "Confusion", "Motivation"];
 const thinkingSteps = [
   "Reading your background...",
+  "Claude is reasoning through your profile...",
   "Identifying skill gaps...",
   "Building your 4-week plan...",
   "Calculating risk modes...",
@@ -111,7 +112,8 @@ function Badge({ children, tone = "slate" }) {
     green: "bg-emerald-100 text-emerald-800",
     amber: "bg-amber-100 text-amber-800",
     red: "bg-rose-100 text-rose-800",
-    blue: "bg-sky-100 text-sky-800"
+    blue: "bg-sky-100 text-sky-800",
+    violet: "bg-violet-100 text-violet-800"
   };
 
   return (
@@ -178,6 +180,50 @@ function EmptyState() {
   );
 }
 
+function ThinkingSection({ thinking }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!thinking) return null;
+
+  const wordCount = thinking.trim().split(/\s+/).length;
+  const preview = thinking.length > 400;
+
+  return (
+    <section className="rounded-lg border border-violet-800 bg-violet-950 p-5 shadow-soft">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-violet-800 text-violet-200">
+            <Brain className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div>
+            <h2 className="font-bold text-white">Extended Thinking</h2>
+            <p className="text-xs text-violet-300">
+              Claude reasoned through your profile before generating this plan.
+            </p>
+          </div>
+        </div>
+        <Badge tone="violet">{wordCount} words of reasoning</Badge>
+      </div>
+      <div
+        className={classNames(
+          "whitespace-pre-wrap text-sm leading-7 text-violet-200 transition-all",
+          !expanded && preview ? "line-clamp-5" : ""
+        )}
+      >
+        {thinking}
+      </div>
+      {preview && (
+        <button
+          className="mt-3 text-xs font-bold text-violet-300 transition hover:text-white"
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show less" : "Read full reasoning →"}
+        </button>
+      )}
+    </section>
+  );
+}
+
 function ErrorFallback({ message }) {
   return (
     <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 text-rose-900 shadow-soft">
@@ -197,9 +243,10 @@ function LoadingPanel({ adapting, step }) {
     <div className="flex min-h-[420px] flex-col items-center justify-center rounded-lg border border-slate-200 bg-white p-8 text-center shadow-soft">
       <Loader2 className="h-12 w-12 animate-spin text-slate-950" aria-hidden="true" />
       <h2 className="mt-5 text-xl font-bold text-slate-950">
-        {adapting ? "Adapting your plan..." : "Thinking through your options"}
+        {adapting ? "Adapting your plan..." : "Reasoning through your options"}
       </h2>
       <p className="mt-2 max-w-md text-sm leading-6 text-slate-600">{step}</p>
+      <p className="mt-1 text-xs font-semibold text-violet-600">Extended Thinking active</p>
       <div className="mt-5 flex w-full max-w-md gap-1">
         {thinkingSteps.map((item, index) => (
           <div
@@ -466,7 +513,7 @@ ${plan.ethical_layer?.uncertainty || ""}
 This is decision support, not a guarantee.`;
 }
 
-function Results({ adaptationFeedback, onAdapt, onShare, onToggleTask, planRef, saveState, shareState, shareToken, taskProgress = {}, result }) {
+function Results({ adaptationFeedback, onAdapt, onShare, onToggleTask, planRef, saveState, shareState, shareToken, taskProgress = {}, result, thinking }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [copied, setCopied] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -528,6 +575,8 @@ function Results({ adaptationFeedback, onAdapt, onShare, onToggleTask, planRef, 
           <p>{result.warning}</p>
         </div>
       ) : null}
+
+      <ThinkingSection thinking={thinking} />
 
       {totalTasks > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
@@ -1305,6 +1354,7 @@ export default function App() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+            <Badge tone="violet">extended thinking</Badge>
             <Badge tone="green">clarifying</Badge>
             <Badge tone="blue">risks</Badge>
             <Badge tone="amber">alternatives</Badge>
@@ -1430,6 +1480,7 @@ export default function App() {
                   adaptationFeedback={adaptationFeedback}
                   planRef={planRef}
                   result={result}
+                  thinking={result?.thinking || null}
                   saveState={saveState}
                   shareState={shareState}
                   shareToken={shareToken}

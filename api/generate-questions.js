@@ -51,7 +51,7 @@ async function callClaude(input) {
   const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
   if (!apiKey) return fallbackQuestions;
 
-  const model = process.env.CLAUDE_MODEL || "claude-haiku-4-5-20251001";
+  const model = "claude-haiku-4-5-20251001";
   const prompt = `
 Based on this user profile and answers, generate 2-3 specific clarification questions that reduce uncertainty. Keep them short and multiple-choice where possible.
 
@@ -79,19 +79,26 @@ Rules:
     headers: {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01"
+      "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31"
     },
     body: JSON.stringify({
       model,
       max_tokens: 1200,
-      system:
-        "You generate concise adaptive clarification questions for a career decision-support app.",
+      system: [
+        {
+          type: "text",
+          text: "You generate concise adaptive clarification questions for a career decision-support app.",
+          cache_control: { type: "ephemeral" }
+        }
+      ],
       messages: [{ role: "user", content: prompt }],
       tools: [
         {
           name: "create_adaptive_questions",
           description: "Return 2-3 adaptive clarification questions.",
-          input_schema: questionSchema
+          input_schema: questionSchema,
+          cache_control: { type: "ephemeral" }
         }
       ],
       tool_choice: {
