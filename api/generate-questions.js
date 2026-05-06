@@ -1,4 +1,5 @@
-import { normalizeInput } from "../src/lib/careerPlan.js";
+import { normalizeInput, validateInput } from "../src/lib/careerPlan.js";
+import { withGuards } from "./_shared.js";
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 
@@ -116,23 +117,19 @@ Rules:
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method not allowed." });
-  }
-
-  let body;
-  try {
-    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-  } catch {
-    return res.status(400).json({ error: "Invalid JSON request body." });
-  }
-
-  try {
-    const questions = await callClaude(normalizeInput(body));
-    return res.status(200).json({ questions });
-  } catch (error) {
-    console.error("Adaptive question API failed:", error);
-    return res.status(200).json({ questions: fallbackQuestions });
-  }
+  return withGuards(req, res, async (body) => {
+    const input = normalizeInput(body);
+    const errors = validateInput(input);
+    if (errors.length > 0) {
+      // For adaptive questions, fall back rather than block UX on minor validation
+      return res.status(200).json({ questions: fallbackQuestions });
+    }
+    try {
+      const questions = await callClaude(input);
+      return res.status(200).json({ questions });
+    } catch (error) {
+      console.error("Adaptive question API failed:", error);
+      return res.status(200).json({ questions: fallbackQuestions });
+    }
+  });
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowRight,
@@ -25,6 +25,10 @@ import {
 import { fallbackAdaptiveQuestions, generateAdaptiveQuestions, generateCareerPlan } from "./lib/api";
 import { createFallbackPlan, sampleInput } from "./lib/careerPlan";
 import { loadPlanByToken, savePlan, updateProgress } from "./lib/db";
+import { getCurrentUser, onAuthChange } from "./lib/auth";
+import Header from "./components/Header";
+const LoginModal = lazy(() => import("./components/LoginModal"));
+const Dashboard = lazy(() => import("./components/Dashboard"));
 
 const LS_KEY = "cgps_session";
 
@@ -1118,8 +1122,78 @@ export default function App() {
   const [taskProgress, setTaskProgress] = useState({});
   const [saveState, setSaveState] = useState(null); // null | "saving" | "saved" | "error"
   const [shareState, setShareState] = useState("idle"); // "idle" | "copied"
+  const [user, setUser] = useState(null);
+  const [view, setView] = useState("home"); // "home" | "dashboard" | "plan"
+  const [showLogin, setShowLogin] = useState(false);
   const resultsRef = useRef(null);
   const planRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentUser()
+      .then((u) => {
+        if (cancelled) return;
+        setUser(u);
+        const params = new URLSearchParams(window.location.search);
+        if (u && !params.get("plan") && view === "home") {
+          setView("dashboard");
+        }
+      })
+      .catch((err) => console.error("Auth check failed:", err));
+
+    const unsub = onAuthChange((u, event) => {
+      if (cancelled) return;
+      setUser(u);
+      if (event === "SIGNED_IN" && u) {
+        setView("dashboard");
+      }
+      if (event === "SIGNED_OUT") {
+        setView("home");
+        setResult(null);
+        setShareToken(null);
+        setPlanId(null);
+        setTaskProgress({});
+        setSaveState(null);
+        lsClear();
+        const url = new URL(window.location.href);
+        url.searchParams.delete("plan");
+        window.history.replaceState({}, "", url.toString());
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsub?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleViewChange(nextView) {
+    setView(nextView);
+    if (nextView !== "plan") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("plan");
+      window.history.replaceState({}, "", url.toString());
+    }
+    if (nextView === "home" || nextView === "dashboard") {
+      setResult(null);
+      setError("");
+      setShareToken(null);
+      setPlanId(null);
+      setTaskProgress({});
+      setSaveState(null);
+      setAdaptationFeedback("");
+      lsClear();
+    }
+  }
+
+  function handleOpenPlan(token) {
+    if (!token) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("plan", token);
+    window.history.replaceState({}, "", url.toString());
+    loadSharedPlan(token);
+    setView("plan");
+  }
 
   useEffect(() => {
     if (!loading) {
@@ -1147,29 +1221,28 @@ export default function App() {
     const token = params.get("plan");
     if (token) {
       loadSharedPlan(token);
+      setView("plan");
     } else {
       const session = lsLoad();
-      if (session?.result?.plan) {
-        setResult(session.result);
-        setTaskProgress(session.taskProgress || {});
-        setShareToken(session.shareToken || null);
-        setPlanId(session.planId || null);
-        if (session.shareToken) {
-          setSaveState("saved");
-          // Restore the plan URL so it's bookmarkable after a refresh
-          const url = new URL(window.location.href);
-          url.searchParams.set("plan", session.shareToken);
-          window.history.replaceState({}, "", url.toString());
-        }
+      if (session?.shareToken) {
+        // Re-fetch plan from Supabase using the persisted share token
+        // (we no longer cache plan data in localStorage)
+        loadSharedPlan(session.shareToken);
+        setView("plan");
+        const url = new URL(window.location.href);
+        url.searchParams.set("plan", session.shareToken);
+        window.history.replaceState({}, "", url.toString());
       }
     }
   }, []);
 
   useEffect(() => {
-    if (result?.plan) {
-      lsSave({ result, taskProgress, shareToken, planId, contextKey: result._contextKey });
+    // Only persist the share token + planId — the plan itself lives in Supabase.
+    // This avoids storing user PII (resume, skills, goals) in localStorage.
+    if (shareToken) {
+      lsSave({ shareToken, planId });
     }
-  }, [result, taskProgress, shareToken, planId]);
+  }, [shareToken, planId]);
 
   async function loadSharedPlan(token) {
     setLoading(true);
@@ -1412,32 +1485,26 @@ export default function App() {
 
   return (
     <main className="min-h-screen bg-[#f6f7fb]">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-4 py-6 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-slate-950 text-white">
-              <Compass className="h-7 w-7" aria-hidden="true" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-black text-slate-950 sm:text-3xl">Career GPS</h1>
-              <p className="mt-1 text-sm font-medium text-slate-600">
-                Adaptive Decision Support for Career Growth
-              </p>
-              <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-slate-800">
-                Built for engineering students in India navigating their first technical internship.
-                No career counselor. No paid mentor. Just honest, adaptive guidance.
-              </p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-            <Badge tone="violet">extended thinking</Badge>
-            <Badge tone="green">clarifying</Badge>
-            <Badge tone="blue">risks</Badge>
-            <Badge tone="amber">alternatives</Badge>
-          </div>
-        </div>
-      </header>
+      <Header
+        user={user}
+        view={view}
+        onViewChange={handleViewChange}
+        onLoginClick={() => setShowLogin(true)}
+      />
 
+      {view === "dashboard" && user ? (
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <Suspense
+            fallback={
+              <div className="flex min-h-[420px] items-center justify-center">
+                <Loader2 className="h-8 w-8 animate-spin text-slate-950" />
+              </div>
+            }
+          >
+            <Dashboard user={user} onCreate={() => handleViewChange("home")} onOpen={handleOpenPlan} />
+          </Suspense>
+        </div>
+      ) : (
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[390px_1fr] lg:px-8">
         <aside className="lg:sticky lg:top-6 lg:self-start">
           <form
@@ -1595,6 +1662,19 @@ export default function App() {
           )}
         </div>
       </div>
+      )}
+
+      {showLogin ? (
+        <Suspense fallback={null}>
+          <LoginModal
+            onClose={() => setShowLogin(false)}
+            onSuccess={() => {
+              setShowLogin(false);
+              setView("dashboard");
+            }}
+          />
+        </Suspense>
+      ) : null}
 
       {showModal ? (
         <ClarificationModal

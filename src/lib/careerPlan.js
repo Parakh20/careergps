@@ -360,6 +360,21 @@ export function normalizeInput(body = {}) {
   };
 }
 
+export const INPUT_LIMITS = {
+  year: 50,
+  skills: 5000,
+  targetRole: 200,
+  projectDescription: 2000,
+  resumeText: 50000,
+  experienceChecks: 500,
+  learningPreference: 50,
+  immediateGoal: 200,
+  mainBlocker: 200,
+  adaptation: 50,
+  previousPlanSummary: 2000,
+  adaptiveAnswers: 5000
+};
+
 export function validateInput(input) {
   const errors = [];
 
@@ -370,6 +385,13 @@ export function validateInput(input) {
   const hours = Number(input.hoursPerWeek);
   if (!Number.isFinite(hours) || hours < 1 || hours > 40) {
     errors.push("Time available must be between 1 and 40 hours per week.");
+  }
+
+  for (const [field, max] of Object.entries(INPUT_LIMITS)) {
+    const value = input[field];
+    if (typeof value === "string" && value.length > max) {
+      errors.push(`${field} exceeds the maximum length of ${max} characters.`);
+    }
   }
 
   return errors;

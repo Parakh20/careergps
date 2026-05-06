@@ -6,6 +6,7 @@ import {
   normalizePlan,
   validateInput
 } from "../src/lib/careerPlan.js";
+import { withGuards } from "./_shared.js";
 
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 
@@ -130,33 +131,23 @@ async function callClaude(input) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).json({ error: "Method not allowed." });
-  }
+  return withGuards(req, res, async (body) => {
+    const input = normalizeInput(body);
+    const errors = validateInput(input);
 
-  let body;
-  try {
-    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
-  } catch {
-    return res.status(400).json({ error: "Invalid JSON request body." });
-  }
+    if (errors.length > 0) {
+      return res.status(400).json({ error: errors.join(" ") });
+    }
 
-  const input = normalizeInput(body);
-  const errors = validateInput(input);
-
-  if (errors.length > 0) {
-    return res.status(400).json({ error: errors.join(" ") });
-  }
-
-  try {
-    const result = await callClaude(input);
-    return res.status(200).json(result);
-  } catch (error) {
-    return res.status(200).json({
-      plan: createFallbackPlan(input),
-      source: "demo-fallback",
-      warning: `${error.message} Career GPS used the built-in demo generator instead.`
-    });
-  }
+    try {
+      const result = await callClaude(input);
+      return res.status(200).json(result);
+    } catch (error) {
+      return res.status(200).json({
+        plan: createFallbackPlan(input),
+        source: "demo-fallback",
+        warning: `${error.message} Career GPS used the built-in demo generator instead.`
+      });
+    }
+  });
 }

@@ -96,5 +96,17 @@ function localApiPlugin() {
 loadLocalEnv();
 
 export default defineConfig({
-  plugins: [react(), localApiPlugin()]
+  plugins: [react(), localApiPlugin()],
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          supabase: ["@supabase/supabase-js"],
+          icons: ["lucide-react"]
+        }
+      }
+    }
+  }
 });
