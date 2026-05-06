@@ -8,11 +8,15 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
+  Cloud,
   Compass,
   Copy,
+  FileDown,
+  Link,
   Loader2,
   Map,
   Route,
+  Share2,
   Sparkles,
   Target,
   TestTube2,
@@ -20,6 +24,7 @@ import {
 } from "lucide-react";
 import { fallbackAdaptiveQuestions, generateAdaptiveQuestions, generateCareerPlan } from "./lib/api";
 import { createFallbackPlan, sampleInput } from "./lib/careerPlan";
+import { loadPlanByToken, savePlan, updateProgress } from "./lib/db";
 
 const initialFormData = {
   year: "",
@@ -260,15 +265,31 @@ function SkillGapCard({ gap }) {
   );
 }
 
-function WeekCard({ defaultOpen = false, label, week }) {
+function WeekCard({ defaultOpen = false, label, onToggleTask, progress = {}, weekKey, week }) {
   const [open, setOpen] = useState(defaultOpen);
   const tasks = safeArray(week?.tasks);
+  const doneCount = tasks.filter((_, i) => progress[i]).length;
+  const allDone = tasks.length > 0 && doneCount === tasks.length;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
+    <div className={classNames(
+      "rounded-lg border bg-white p-5 shadow-soft transition",
+      allDone ? "border-emerald-400" : "border-slate-200"
+    )}>
       <div className="mb-4 flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">{label}</p>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-sky-700">{label}</p>
+            {tasks.length > 0 && (
+              <span className={classNames(
+                "text-xs font-semibold",
+                allDone ? "text-emerald-600" : "text-slate-400"
+              )}>
+                {doneCount}/{tasks.length}
+              </span>
+            )}
+            {allDone && <Check className="h-3.5 w-3.5 text-emerald-600" />}
+          </div>
           <h3 className="mt-1 text-lg font-bold text-slate-950">{week?.focus || "Focus"}</h3>
         </div>
         <button
@@ -283,7 +304,31 @@ function WeekCard({ defaultOpen = false, label, week }) {
       <div className={classNames("space-y-4", open ? "block" : "hidden")}>
         <div>
           <p className="mb-2 text-sm font-bold text-slate-800">Tasks</p>
-          <TextList items={tasks} icon={ArrowRight} />
+          <ul className="space-y-2">
+            {tasks.map((task, index) => (
+              <li className="flex items-start gap-2" key={String(task)}>
+                <button
+                  className={classNames(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition",
+                    progress[index]
+                      ? "border-emerald-600 bg-emerald-600 text-white"
+                      : "border-slate-300 bg-white hover:border-emerald-400"
+                  )}
+                  type="button"
+                  aria-label={progress[index] ? "Mark incomplete" : "Mark complete"}
+                  onClick={() => onToggleTask?.(weekKey, index)}
+                >
+                  {progress[index] && <Check className="h-2.5 w-2.5" />}
+                </button>
+                <span className={classNames(
+                  "text-sm leading-6",
+                  progress[index] ? "text-slate-400 line-through" : "text-slate-600"
+                )}>
+                  {String(task)}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
         <div className="rounded-md bg-slate-50 p-3 text-sm font-semibold text-slate-800">
           Why: {week?.why || "Reasoning unavailable."}
@@ -421,16 +466,25 @@ ${plan.ethical_layer?.uncertainty || ""}
 This is decision support, not a guarantee.`;
 }
 
-function Results({ adaptationFeedback, onAdapt, result }) {
+function Results({ adaptationFeedback, onAdapt, onShare, onToggleTask, planRef, saveState, shareState, shareToken, taskProgress = {}, result }) {
   const [selectedProject, setSelectedProject] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const plan = mergePlan(result?.plan);
   const weeks = [
-    ["Week 1", plan.primary_plan?.week1],
-    ["Week 2", plan.primary_plan?.week2],
-    ["Week 3", plan.primary_plan?.week3],
-    ["Week 4", plan.primary_plan?.week4]
+    ["Week 1", plan.primary_plan?.week1, "week1"],
+    ["Week 2", plan.primary_plan?.week2, "week2"],
+    ["Week 3", plan.primary_plan?.week3, "week3"],
+    ["Week 4", plan.primary_plan?.week4, "week4"]
   ];
+
+  const weekKeys = ["week1", "week2", "week3", "week4"];
+  const totalTasks = weekKeys.reduce((sum, key) => sum + safeArray(plan.primary_plan?.[key]?.tasks).length, 0);
+  const doneTasks = weekKeys.reduce((sum, key) => {
+    const wp = taskProgress[key] || {};
+    return sum + safeArray(plan.primary_plan?.[key]?.tasks).filter((_, i) => wp[i]).length;
+  }, 0);
+  const progressPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
 
   if (!result?.plan) return null;
 
@@ -444,6 +498,28 @@ function Results({ adaptationFeedback, onAdapt, result }) {
     }
   }
 
+  async function exportPDF() {
+    if (!planRef?.current) return;
+    setExporting(true);
+    try {
+      const html2pdf = (await import("html2pdf.js")).default;
+      await html2pdf()
+        .set({
+          margin: [10, 10, 10, 10],
+          filename: "career-gps-plan.pdf",
+          image: { type: "jpeg", quality: 0.95 },
+          html2canvas: { scale: 2, useCORS: true, logging: false },
+          jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+        })
+        .from(planRef.current)
+        .save();
+    } catch (err) {
+      console.error("PDF export failed:", err);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {result.warning ? (
@@ -453,17 +529,76 @@ function Results({ adaptationFeedback, onAdapt, result }) {
         </div>
       ) : null}
 
+      {totalTasks > 0 && (
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-soft">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-bold text-slate-950">Overall Progress</p>
+              <p className="mt-0.5 text-xs text-slate-500">{doneTasks} of {totalTasks} tasks completed</p>
+            </div>
+            <span className={classNames(
+              "text-2xl font-black",
+              progressPct === 100 ? "text-emerald-600" : "text-slate-950"
+            )}>
+              {progressPct}%
+            </span>
+          </div>
+          <div className="mt-3 h-2 w-full rounded-full bg-slate-100">
+            <div
+              className={classNames(
+                "h-2 rounded-full transition-all duration-500",
+                progressPct === 100 ? "bg-emerald-500" : "bg-slate-950"
+              )}
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <SectionTitle icon={Brain} title="Situation" subtitle="How the system interprets your current state." />
-          <button
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
-            type="button"
-            onClick={copyPlan}
-          >
-            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            {copied ? "Copied" : "Copy plan as text"}
-          </button>
+          <div className="flex items-start gap-3">
+            <SectionTitle icon={Brain} title="Situation" subtitle="How the system interprets your current state." />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {saveState === "saving" && (
+              <span className="inline-flex h-10 items-center gap-1.5 px-3 text-sm text-slate-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Saving...
+              </span>
+            )}
+            {saveState === "saved" && (
+              <span className="inline-flex h-10 items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-700">
+                <Cloud className="h-3.5 w-3.5" /> Saved
+              </span>
+            )}
+            {shareToken && (
+              <button
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+                type="button"
+                onClick={onShare}
+              >
+                {shareState === "copied" ? <Check className="h-4 w-4 text-emerald-600" /> : <Share2 className="h-4 w-4" />}
+                {shareState === "copied" ? "Link copied!" : "Share plan"}
+              </button>
+            )}
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50"
+              type="button"
+              onClick={copyPlan}
+            >
+              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              {copied ? "Copied" : "Copy as text"}
+            </button>
+            <button
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:opacity-60"
+              type="button"
+              disabled={exporting}
+              onClick={exportPDF}
+            >
+              {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+              {exporting ? "Exporting..." : "Export PDF"}
+            </button>
+          </div>
         </div>
         <p className="text-sm leading-6 text-slate-600">{plan.situation_understanding}</p>
       </section>
@@ -480,8 +615,16 @@ function Results({ adaptationFeedback, onAdapt, result }) {
       <section>
         <SectionTitle icon={Route} title="Primary Plan" subtitle="One possible path, not the only correct path." />
         <div className="grid gap-4 lg:grid-cols-2">
-          {weeks.map(([label, week], index) => (
-            <WeekCard defaultOpen={index === 0} key={label} label={label} week={week} />
+          {weeks.map(([label, week, weekKey], index) => (
+            <WeekCard
+              defaultOpen={index === 0}
+              key={label}
+              label={label}
+              weekKey={weekKey}
+              week={week}
+              progress={taskProgress[weekKey] || {}}
+              onToggleTask={onToggleTask}
+            />
           ))}
         </div>
       </section>
@@ -656,10 +799,26 @@ function Results({ adaptationFeedback, onAdapt, result }) {
           ) : null}
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-soft">
-          <h2 className="text-lg font-bold text-slate-950">Exportable By Design</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
-            Copy the plan, compare it with mentor advice, or revise it after you discover new constraints.
-          </p>
+          <h2 className="text-lg font-bold text-slate-950">Share This Plan</h2>
+          {shareToken ? (
+            <>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                Share this plan with a mentor, friend, or future self. The link persists.
+              </p>
+              <button
+                className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-slate-950 px-4 text-sm font-bold text-white transition hover:bg-slate-800"
+                type="button"
+                onClick={onShare}
+              >
+                {shareState === "copied" ? <Check className="h-4 w-4" /> : <Link className="h-4 w-4" />}
+                {shareState === "copied" ? "Link copied to clipboard!" : "Copy shareable link"}
+              </button>
+            </>
+          ) : (
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Generate a plan to get a shareable link. Copy the plan as text or export a PDF to share offline.
+            </p>
+          )}
         </div>
       </section>
     </div>
@@ -870,7 +1029,13 @@ export default function App() {
   const [adaptationFeedback, setAdaptationFeedback] = useState("");
   const [lastGenerationContext, setLastGenerationContext] = useState(null);
   const [loadingStep, setLoadingStep] = useState(thinkingSteps[0]);
+  const [planId, setPlanId] = useState(null);
+  const [shareToken, setShareToken] = useState(null);
+  const [taskProgress, setTaskProgress] = useState({});
+  const [saveState, setSaveState] = useState(null); // null | "saving" | "saved" | "error"
+  const [shareState, setShareState] = useState("idle"); // "idle" | "copied"
   const resultsRef = useRef(null);
+  const planRef = useRef(null);
 
   useEffect(() => {
     if (!loading) {
@@ -892,6 +1057,74 @@ export default function App() {
       resultsRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [result]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("plan");
+    if (token) loadSharedPlan(token);
+  }, []);
+
+  async function loadSharedPlan(token) {
+    setLoading(true);
+    setError("");
+    try {
+      const record = await loadPlanByToken(token);
+      if (record?.plan_data) {
+        setResult({ plan: record.plan_data, source: "shared" });
+        setPlanId(record.id);
+        setShareToken(record.share_token);
+        setTaskProgress(record.progress || {});
+        setSaveState("saved");
+      }
+    } catch (err) {
+      console.error("Failed to load shared plan:", err);
+      setError("Could not load the shared plan. It may have been deleted.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function persistPlan(context, payload) {
+    setSaveState("saving");
+    try {
+      const saved = await savePlan(context, payload.plan);
+      if (saved) {
+        setPlanId(saved.id);
+        setShareToken(saved.share_token);
+        const url = new URL(window.location.href);
+        url.searchParams.set("plan", saved.share_token);
+        window.history.replaceState({}, "", url.toString());
+        setSaveState("saved");
+      }
+    } catch (err) {
+      console.error("Failed to save plan:", err);
+      setSaveState(null);
+    }
+  }
+
+  function handleToggleTask(weekKey, taskIndex) {
+    setTaskProgress((prev) => {
+      const weekProg = prev[weekKey] || {};
+      const next = {
+        ...prev,
+        [weekKey]: { ...weekProg, [taskIndex]: !weekProg[taskIndex] }
+      };
+      if (planId) updateProgress(planId, next).catch(console.error);
+      return next;
+    });
+  }
+
+  async function handleShare() {
+    if (!shareToken) return;
+    const url = `${window.location.origin}${window.location.pathname}?plan=${shareToken}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareState("copied");
+      window.setTimeout(() => setShareState("idle"), 2400);
+    } catch {
+      setShareState("idle");
+    }
+  }
 
   function updateField(field, value) {
     setFormData((current) => ({ ...current, [field]: value }));
@@ -936,6 +1169,10 @@ export default function App() {
     setResult({ plan: createFallbackPlan(sampleInput), source: "sample" });
     setError("");
     setAdaptationFeedback("");
+    setPlanId(null);
+    setShareToken(null);
+    setTaskProgress({});
+    setSaveState(null);
     setLastGenerationContext({
       ...sampleInput,
       adaptiveAnswers: {}
@@ -979,6 +1216,10 @@ export default function App() {
     setError("");
     setShowModal(false);
     setAdaptationFeedback("");
+    setPlanId(null);
+    setShareToken(null);
+    setTaskProgress({});
+    setSaveState(null);
     const context = {
       ...formData,
       ...coreAnswers,
@@ -995,6 +1236,7 @@ export default function App() {
 
       setResult(payload);
       setLastGenerationContext(context);
+      persistPlan(context, payload);
     } catch (err) {
       console.error("Final generation failed:", err);
       setError("Something went wrong. Please try again.");
@@ -1016,6 +1258,10 @@ export default function App() {
     setLoading(true);
     setError("");
     setAdaptationFeedback(option);
+    setPlanId(null);
+    setShareToken(null);
+    setTaskProgress({});
+    setSaveState(null);
 
     try {
       const payload = await generateCareerPlan({
@@ -1030,6 +1276,7 @@ export default function App() {
 
       setResult(payload);
       setLastGenerationContext(context);
+      persistPlan({ ...context, adaptation: option, previousPlanSummary: summarizePlanForAdaptation(result?.plan) }, payload);
     } catch (err) {
       console.error("Plan adaptation failed:", err);
       setError("Something went wrong. Please try again.");
@@ -1178,11 +1425,20 @@ export default function App() {
             <ErrorFallback message={error} />
           ) : result?.plan ? (
             <div ref={resultsRef}>
-              <Results
-                adaptationFeedback={adaptationFeedback}
-                result={result}
-                onAdapt={handleAdaptPlan}
-              />
+              <div ref={planRef}>
+                <Results
+                  adaptationFeedback={adaptationFeedback}
+                  planRef={planRef}
+                  result={result}
+                  saveState={saveState}
+                  shareState={shareState}
+                  shareToken={shareToken}
+                  taskProgress={taskProgress}
+                  onAdapt={handleAdaptPlan}
+                  onShare={handleShare}
+                  onToggleTask={handleToggleTask}
+                />
+              </div>
             </div>
           ) : (
             <EmptyState />
