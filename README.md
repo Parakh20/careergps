@@ -1,5 +1,7 @@
 # Career GPS - Adaptive Decision Support for Career Growth
 
+LINK- https://career-gps-ai-roadmap.vercel.app/
+
 Career GPS is a deployable hackathon MVP that helps students think through career and learning decisions without pretending there is one guaranteed path.
 
 ## Problem
