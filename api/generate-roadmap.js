@@ -86,9 +86,7 @@ async function callClaude(input) {
           cache_control: { type: "ephemeral" }
         }
       ],
-      tool_choice: {
-        type: "any"
-      }
+      tool_choice: { type: "auto" }
     })
   });
 
