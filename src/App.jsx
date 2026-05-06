@@ -26,6 +26,26 @@ import { fallbackAdaptiveQuestions, generateAdaptiveQuestions, generateCareerPla
 import { createFallbackPlan, sampleInput } from "./lib/careerPlan";
 import { loadPlanByToken, savePlan, updateProgress } from "./lib/db";
 
+const LS_KEY = "cgps_session";
+
+function lsSave(data) {
+  try { localStorage.setItem(LS_KEY, JSON.stringify({ ...data, savedAt: Date.now() })); } catch (e) { void e; }
+}
+
+function lsLoad() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Date.now() - parsed.savedAt > 86_400_000) return null;
+    return parsed;
+  } catch (e) { void e; return null; }
+}
+
+function lsClear() {
+  try { localStorage.removeItem(LS_KEY); } catch (e) { void e; }
+}
+
 const initialFormData = {
   year: "",
   skills: "",
@@ -1110,8 +1130,31 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const token = params.get("plan");
-    if (token) loadSharedPlan(token);
+    if (token) {
+      loadSharedPlan(token);
+    } else {
+      const session = lsLoad();
+      if (session?.result?.plan) {
+        setResult(session.result);
+        setTaskProgress(session.taskProgress || {});
+        setShareToken(session.shareToken || null);
+        setPlanId(session.planId || null);
+        if (session.shareToken) {
+          setSaveState("saved");
+          // Restore the plan URL so it's bookmarkable after a refresh
+          const url = new URL(window.location.href);
+          url.searchParams.set("plan", session.shareToken);
+          window.history.replaceState({}, "", url.toString());
+        }
+      }
+    }
   }, []);
+
+  useEffect(() => {
+    if (result?.plan) {
+      lsSave({ result, taskProgress, shareToken, planId });
+    }
+  }, [result, taskProgress, shareToken, planId]);
 
   async function loadSharedPlan(token) {
     setLoading(true);
@@ -1234,6 +1277,7 @@ export default function App() {
     event.preventDefault();
     setError("");
     setResult(null);
+    lsClear();
     setModalStep("core");
     setShowModal(true);
   }
@@ -1462,9 +1506,32 @@ export default function App() {
               </button>
             </div>
 
-            <p className="mt-5 rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-              This is decision support, not a guarantee. You stay in control of the final choice.
-            </p>
+            {saveState === "saved" && shareToken ? (
+              <div className="mt-5 rounded-md border border-emerald-200 bg-emerald-50 p-3">
+                <div className="flex items-center gap-2">
+                  <Cloud className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
+                  <p className="text-xs font-bold text-emerald-800">Plan saved — revisit any time</p>
+                </div>
+                <p className="mt-1 text-xs text-emerald-700">
+                  Bookmark or share this link. It loads your exact plan, progress, and context.
+                </p>
+                <button
+                  className="mt-2 w-full truncate rounded border border-emerald-200 bg-white px-2 py-1.5 text-left font-mono text-xs text-emerald-900 transition hover:bg-emerald-100"
+                  type="button"
+                  title="Click to copy link"
+                  onClick={handleShare}
+                >
+                  {`${window.location.origin}/?plan=${shareToken}`}
+                </button>
+                {shareState === "copied" && (
+                  <p className="mt-1 text-center text-xs font-semibold text-emerald-700">Copied!</p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-5 rounded-md bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                This is decision support, not a guarantee. You stay in control of the final choice.
+              </p>
+            )}
           </form>
         </aside>
 
