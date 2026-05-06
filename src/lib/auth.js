@@ -5,7 +5,20 @@ export async function signUp(email, password) {
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: { emailRedirectTo: window.location.origin }
+    options: {
+      emailRedirectTo: window.location.origin,
+      data: {}
+    }
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function signInWithOAuth(provider) {
+  if (!supabase) throw new Error("Supabase is not configured.");
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider,
+    options: { redirectTo: window.location.origin }
   });
   if (error) throw error;
   return data;
