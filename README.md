@@ -1,8 +1,11 @@
 # Career GPS - Adaptive Decision Support for Career Growth
 
-LINK- https://career-gps-ai-roadmap.vercel.app/
+[![CI](https://github.com/Parakh20/careergps/actions/workflows/ci.yml/badge.svg)](https://github.com/Parakh20/careergps/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Career GPS is a deployable hackathon MVP that helps students think through career and learning decisions without pretending there is one guaranteed path.
+**Live demo:** https://career-gps-ai-roadmap.vercel.app/
+
+Career GPS is an AI-assisted web app that helps students think through career and learning decisions without pretending there is one guaranteed path.
 
 ## Problem
 
@@ -27,63 +30,81 @@ The app first asks for the student's current year, current skills, target role o
 
 ## Features
 
-- Single-page React app
-- Clean responsive Tailwind UI
-- Loading state during generation
-- Clarification modal before final generation
-- AI-generated adaptive follow-up questions
-- Optional resume text textarea
-- Modular Claude prompt and schema logic
-- Vercel serverless API route
-- Claude Haiku Messages API integration
-- Built-in demo fallback if `CLAUDE_API_KEY` is missing
+- Single-page React app with a responsive Tailwind UI
+- Clarification-first flow: AI-generated adaptive follow-up questions before the plan is generated
+- Optional resume text input
+- Structured plan generation with Claude tool use (JSON schema in `src/lib/careerPlan.js`)
+- Built-in demo generator when no Claude API key is configured or the API call fails
+- Plan adaptation ("Too hard", "Too easy", "Not interested", "Give alternative")
+- Week-by-week task checklist with progress tracking
+- Copy the plan as Markdown or export it as a PDF (`html2pdf.js`)
+- Optional accounts via Supabase Auth: email/password, Google and GitHub OAuth
+- Dashboard of saved plans (reopen, delete) for signed-in users
+- Shareable read-only links (`?plan=<share_token>`)
+- Serverless API guards: origin allow-list (CORS), POST-only, JSON validation, 200 KB body limit and a per-IP rate limit (8 requests/minute, in-memory)
 - Ethical layer that preserves user agency
-- Clarification-first flow before Claude generation
 
 ## Tech Stack
 
-- React with functional components
-- Vite
-- Tailwind CSS
-- Lucide React icons
-- Vercel serverless functions
-- Anthropic Claude API, abstracted in `api/generate-roadmap.js` and `src/lib/careerPlan.js`
+- React 19, Vite 7, Tailwind CSS, Lucide React icons
+- Vercel serverless functions (`api/`)
+- Anthropic Claude Messages API:
+  - `api/generate-roadmap.js`: `claude-sonnet-4-6` with extended thinking and prompt caching
+  - `api/generate-questions.js`: `claude-haiku-4-5-20251001`
+- Supabase (Postgres + Auth) with row-level security, migrations in `supabase/migrations/`
+- Vitest for unit and API handler tests, ESLint
 
 ## Run Locally
 
-Install Node.js 20 or newer, then run:
+Requires Node.js 20 or newer.
 
 ```bash
-npm install
-cp .env.example .env
-npm run dev
+npm ci
+cp .env.example .env   # add your keys; every variable is optional for a demo run
+npm run dev            # http://localhost:5173
 ```
 
-Add your API key in `.env`:
+`npm run dev` serves `/api/generate-roadmap` and `/api/generate-questions` through local Vite
+middleware (see `vite.config.js`), so the full flow works without the Vercel CLI.
 
-```bash
-CLAUDE_API_KEY=your_claude_api_key_here
-CLAUDE_MODEL=claude-haiku-4-5-20251001
-```
+### Environment variables
 
-Open:
+| Variable | Where | Purpose |
+|---|---|---|
+| `CLAUDE_API_KEY` (or `ANTHROPIC_API_KEY`) | server | Claude API access. Without it, the built-in demo generator is used. |
+| `VITE_SUPABASE_URL` | client | Supabase project URL. Without it, accounts and saved plans are disabled. |
+| `VITE_SUPABASE_ANON_KEY` | client | Supabase anon key (public by design; data access is enforced by RLS). |
 
-```text
-http://localhost:5173
-```
+### Supabase setup (optional)
 
-Plain Vite dev mode includes local middleware for `/api/generate-roadmap`, so `npm run dev` can call Claude directly.
+Apply the SQL files in `supabase/migrations/` in order (e.g. `supabase db push`, or paste them into the SQL editor),
+then enable the Email, Google and GitHub providers you want under Authentication.
+
+The `Supabase Migrations` workflow applies migrations on pushes to `main` that touch `supabase/migrations/`,
+once a `SUPABASE_DB_URL` repository secret is configured; without the secret it skips with a warning.
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `npm run dev` | Vite dev server with local API middleware |
+| `npm run dev:vercel` | Run through `vercel dev` |
+| `npm run build` | Production build into `dist/` |
+| `npm run preview` | Serve the production build |
+| `npm run lint` | ESLint |
+| `npm test` | Vitest: plan normalization/validation, fallback generator, API guards and handlers |
+
+Tests never call the real Claude API: keys are blanked and `fetch` is mocked, including the
+success and error paths of the roadmap endpoint.
 
 ## Deploy on Vercel
 
-1. Push this folder to a GitHub repository.
-2. Import the repository in Vercel.
-3. Add environment variables in Vercel Project Settings:
-   - `CLAUDE_API_KEY`
-   - `CLAUDE_MODEL` optional, defaults to `claude-haiku-4-5-20251001`
-4. Deploy.
+1. Import the repository in Vercel.
+2. Add `CLAUDE_API_KEY`, `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Project Settings.
+3. Deploy. Vercel builds the Vite app and serves the functions in `api/`; `vercel.json` rewrites
+   all other routes to `index.html`.
 
-Vercel will build the Vite app and serve the API route from `api/generate-roadmap.js`.
+If you deploy under a different domain, add it to `ALLOWED_ORIGINS` in `api/_shared.js`.
 
 ## Sample Test Input
 
@@ -188,10 +209,18 @@ Vercel will build the Vite app and serve the API route from `api/generate-roadma
 
 ## Claude Implementation Notes
 
-The serverless function uses Anthropic's Messages API with Claude Haiku 4.5 and tool-based structured JSON output. The prompt and JSON schema live in `src/lib/careerPlan.js`.
+The roadmap function calls the Messages API with `claude-sonnet-4-6`, extended thinking and a
+`create_career_plan` tool whose input schema enforces the JSON shape above; responses are
+normalized by `normalizePlan` so missing sections fall back to safe defaults. The adaptive
+questions function uses `claude-haiku-4-5-20251001` with a forced tool call. Prompts and
+schemas live in `src/lib/careerPlan.js` and `api/`.
 
 Official docs referenced:
 
 - https://platform.claude.com/docs/en/api/overview
 - https://platform.claude.com/docs/en/build-with-claude/working-with-messages
 - https://platform.claude.com/docs/en/build-with-claude/structured-outputs
+
+## License
+
+[MIT](LICENSE) © 2026 Parakh Sharma
