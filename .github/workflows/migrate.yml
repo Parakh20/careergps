@@ -5,16 +5,26 @@ on:
     branches: [main]
     paths:
       - "supabase/migrations/**"
+  workflow_dispatch:
 
 jobs:
   migrate:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
     steps:
+      - name: Check for database secret
+        if: env.SUPABASE_DB_URL == ''
+        run: echo "::warning::SUPABASE_DB_URL secret is not set; skipping migrations. Add it under Settings > Secrets and variables > Actions to enable this workflow."
+
       - uses: actions/checkout@v4
+        if: env.SUPABASE_DB_URL != ''
 
       - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_DB_URL != ''
         with:
           version: latest
 
       - name: Apply migrations
-        run: supabase db push --db-url "${{ secrets.SUPABASE_DB_URL }}"
+        if: env.SUPABASE_DB_URL != ''
+        run: supabase db push --db-url "$SUPABASE_DB_URL"
